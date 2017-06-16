@@ -10,12 +10,12 @@ from gym import spaces, error
 from gym.utils import seeding
 
 try:
-    import doom_py
-    from doom_py import DoomGame, Mode, Button, GameVariable, ScreenFormat, ScreenResolution, Loader
-    from doom_py.vizdoom import ViZDoomUnexpectedExitException, ViZDoomErrorException
+    import vizdoom
+    from vizdoom import DoomGame, Mode, Button, GameVariable, ScreenFormat, ScreenResolution
+    from vizdoom import ViZDoomUnexpectedExitException, ViZDoomErrorException
 except ImportError as e:
     raise gym.error.DependencyNotInstalled("{}. (HINT: you can install Doom dependencies " +
-                                           "with 'pip install doom_py.)'".format(e))
+                                           "with 'pip install vizdoom.)'".format(e))
 
 logger = logging.getLogger(__name__)
 
@@ -32,26 +32,30 @@ TARGET_SCORE = 6
 
 # Format (config, scenario, map, difficulty, actions, min, target)
 DOOM_SETTINGS = [
-    ['basic.cfg', 'basic.wad', 'map01', 5, [0, 10, 11], -485, 10],                               # 0 - Basic
+    ['basic.cfg', 'basic.wad', 'map01', 5, [0, 10, 11], -485, 10],  # 0 - Basic
     ['deadly_corridor.cfg', 'deadly_corridor.wad', '', 1, [0, 10, 11, 13, 14, 15], -120, 1000],  # 1 - Corridor
-    ['defend_the_center.cfg', 'defend_the_center.wad', '', 5, [0, 14, 15], -1, 10],              # 2 - DefendCenter
-    ['defend_the_line.cfg', 'defend_the_line.wad', '', 5, [0, 14, 15], -1, 15],                  # 3 - DefendLine
-    ['health_gathering.cfg', 'health_gathering.wad', 'map01', 5, [13, 14, 15], 0, 1000],         # 4 - HealthGathering
-    ['my_way_home.cfg', 'my_way_home.wad', '', 5, [13, 14, 15], -0.22, 0.5],                     # 5 - MyWayHome
-    ['predict_position.cfg', 'predict_position.wad', 'map01', 3, [0, 14, 15], -0.075, 0.5],      # 6 - PredictPosition
-    ['take_cover.cfg', 'take_cover.wad', 'map01', 5, [10, 11], 0, 750],                          # 7 - TakeCover
-    ['deathmatch.cfg', 'deathmatch.wad', '', 5, [x for x in range(NUM_ACTIONS) if x != 33], 0, 20] # 8 - Deathmatch
+    ['defend_the_center.cfg', 'defend_the_center.wad', '', 5, [0, 14, 15], -1, 10],  # 2 - DefendCenter
+    ['defend_the_line.cfg', 'defend_the_line.wad', '', 5, [0, 14, 15], -1, 15],  # 3 - DefendLine
+    ['health_gathering.cfg', 'health_gathering.wad', 'map01', 5, [13, 14, 15], 0, 1000],  # 4 - HealthGathering
+    ['my_way_home.cfg', 'my_way_home.wad', '', 5, [13, 14, 15], -0.22, 0.5],  # 5 - MyWayHome
+    ['predict_position.cfg', 'predict_position.wad', 'map01', 3, [0, 14, 15], -0.075, 0.5],  # 6 - PredictPosition
+    ['take_cover.cfg', 'take_cover.wad', 'map01', 5, [10, 11], 0, 750],  # 7 - TakeCover
+    ['deathmatch.cfg', 'deathmatch.wad', '', 5, [x for x in range(NUM_ACTIONS) if x != 33], 0, 20]  # 8 - Deathmatch
 ]
+
 
 # Singleton pattern
 class DoomLock:
     class __DoomLock:
         def __init__(self):
             self.lock = multiprocessing.Lock()
+
     instance = None
+
     def __init__(self):
         if not DoomLock.instance:
             DoomLock.instance = DoomLock.__DoomLock()
+
     def get_lock(self):
         return DoomLock.instance.lock
 
@@ -63,12 +67,11 @@ class DoomEnv(gym.Env):
         self.previous_level = -1
         self.level = level
         self.game = DoomGame()
-        self.loader = Loader()
         self.doom_dir = os.path.dirname(os.path.abspath(__file__))
-        self._mode = 'algo'                         # 'algo' or 'human'
-        self.no_render = False                      # To disable double rendering in human mode
+        self._mode = 'algo'  # 'algo' or 'human'
+        self.no_render = False  # To disable double rendering in human mode
         self.viewer = None
-        self.is_initialized = False                 # Indicates that reset() has been called
+        self.is_initialized = False  # Indicates that reset() has been called
         self.curr_seed = 0
         self.lock = (DoomLock()).get_lock()
         self.action_space = spaces.MultiDiscrete([[0, 1]] * 38 + [[-10, 10]] * 2 + [[-100, 100]] * 3)
@@ -82,7 +85,8 @@ class DoomEnv(gym.Env):
 
     def _configure(self, lock=None, **kwargs):
         if 'screen_resolution' in kwargs:
-            logger.warn('Deprecated - Screen resolution must now be set using a wrapper. See documentation for details.')
+            logger.warn(
+                'Deprecated - Screen resolution must now be set using a wrapper. See documentation for details.')
         # Multiprocessing lock
         if lock is not None:
             self.lock = lock
@@ -100,14 +104,11 @@ class DoomEnv(gym.Env):
             self._customize_game()
 
         else:
-            # Loading Paths
-            if not self.is_initialized:
-                self.game.set_vizdoom_path(self.loader.get_vizdoom_path())
-                self.game.set_doom_game_path(self.loader.get_freedoom_path())
 
             # Common settings
             self.game.load_config(os.path.join(self.doom_dir, 'assets/%s' % DOOM_SETTINGS[self.level][CONFIG]))
-            self.game.set_doom_scenario_path(self.loader.get_scenario_path(DOOM_SETTINGS[self.level][SCENARIO]))
+            scenario_path = os.path.join(vizdoom.__path__[0], "scenarios", DOOM_SETTINGS[self.level][SCENARIO])
+            self.game.set_doom_scenario_path(scenario_path)
             if DOOM_SETTINGS[self.level][MAP] != '':
                 self.game.set_doom_map(DOOM_SETTINGS[self.level][MAP])
             self.game.set_doom_skill(DOOM_SETTINGS[self.level][DIFFICULTY])
@@ -199,7 +200,7 @@ class DoomEnv(gym.Env):
                 is_finished = False
                 return state.image_buffer.copy(), reward, is_finished, info
 
-        except doom_py.vizdoom.ViZDoomIsNotRunningException:
+        except vizdoom.ViZDoomIsNotRunningException:
             return np.zeros(shape=self.observation_space.shape, dtype=np.uint8), 0, True, {}
 
     def _reset(self):
@@ -221,7 +222,7 @@ class DoomEnv(gym.Env):
         if close:
             if self.viewer is not None:
                 self.viewer.close()
-                self.viewer = None      # If we don't None out this reference pyglet becomes unhappy
+                self.viewer = None  # If we don't None out this reference pyglet becomes unhappy
             return
         try:
             if 'human' == mode and self.no_render:
@@ -239,7 +240,7 @@ class DoomEnv(gym.Env):
                 if self.viewer is None:
                     self.viewer = rendering.SimpleImageViewer()
                 self.viewer.imshow(img)
-        except doom_py.vizdoom.ViZDoomIsNotRunningException:
+        except vizdoom.ViZDoomIsNotRunningException:
             pass  # Doom has been closed
 
     def _close(self):
@@ -283,17 +284,16 @@ class DoomEnv(gym.Env):
 
 
 class MetaDoomEnv(DoomEnv):
-
     def __init__(self, average_over=10, passing_grade=600, min_tries_for_avg=5):
         super(MetaDoomEnv, self).__init__(0)
         self.average_over = average_over
         self.passing_grade = passing_grade
-        self.min_tries_for_avg = min_tries_for_avg              # Need to use at least this number of tries to calc avg
+        self.min_tries_for_avg = min_tries_for_avg  # Need to use at least this number of tries to calc avg
         self.scores = [[]] * NUM_LEVELS
-        self.locked_levels = [True] * NUM_LEVELS                # Locking all levels but the first
+        self.locked_levels = [True] * NUM_LEVELS  # Locking all levels but the first
         self.locked_levels[0] = False
         self.total_reward = 0
-        self.find_new_level = False                             # Indicates that we need a level change
+        self.find_new_level = False  # Indicates that we need a level change
         self._unlock_levels()
 
     def _play_human_mode(self):
@@ -320,7 +320,7 @@ class MetaDoomEnv(DoomEnv):
     def _get_next_level(self):
         # Finds the unlocked level with the lowest average
         averages = self.get_scores()
-        lowest_level = 0                          # Defaulting to first level
+        lowest_level = 0  # Defaulting to first level
         lowest_score = 1001
         for i in range(NUM_LEVELS):
             if not self.locked_levels[i]:
@@ -360,10 +360,10 @@ class MetaDoomEnv(DoomEnv):
         # Returns a standardized reward for an episode (i.e. between 0 and 1,000)
         min_score = float(DOOM_SETTINGS[self.level][MIN_SCORE])
         target_score = float(DOOM_SETTINGS[self.level][TARGET_SCORE])
-        max_score = min_score + (target_score - min_score) / 0.99           # Target is 99th percentile (Scale 0-1000)
+        max_score = min_score + (target_score - min_score) / 0.99  # Target is 99th percentile (Scale 0-1000)
         std_reward = round(1000 * (episode_reward - min_score) / (max_score - min_score), 4)
-        std_reward = min(1000, std_reward)                                  # Cannot be more than 1,000
-        std_reward = max(0, std_reward)                                     # Cannot be less than 0
+        std_reward = min(1000, std_reward)  # Cannot be more than 1,000
+        std_reward = max(0, std_reward)  # Cannot be less than 0
         return std_reward
 
     def get_total_reward(self):
